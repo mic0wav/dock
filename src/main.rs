@@ -3,7 +3,6 @@ mod niri;
 use niri_ipc::{Event, Request};
 use std::future::Future;
 use std::time::Duration;
-use tokio;
 
 /// helper that keeps things from failing quietly
 pub fn spawn_supervised<Fut>(name: &'static str, task: Fut)
@@ -42,6 +41,8 @@ where
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
     let commands = niri::CommandClient::connect().await?;
 
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(64);

@@ -1,15 +1,25 @@
 mod niri;
+mod ui;
 
-use niri_ipc::{Event, Request};
+use niri_ipc::{Event, Window};
+use relm4::RelmApp;
 use std::future::Future;
+use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::runtime::Runtime;
+
+/// builds the tokio runtime explicitly
+pub(crate) fn runtime() -> &'static Runtime {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| Runtime::new().expect("failed to start tokio runtime"))
+}
 
 /// helper that keeps things from failing quietly
 pub fn spawn_supervised<Fut>(name: &'static str, task: Fut)
 where
     Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
 {
-    tokio::spawn(async move {
+    runtime().spawn(async move {
         match tokio::spawn(task).await {
             Ok(Ok(())) => log::info!("[{name}] exited cleanly"),
             Ok(Err(e)) => log::warn!("[{name}] task error {e:#}"),
@@ -24,7 +34,7 @@ where
     F: FnMut() -> Fut + Send + 'static,
     Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
 {
-    tokio::spawn(async move {
+    runtime().spawn(async move {
         loop {
             match tokio::spawn(make_task()).await {
                 Ok(Ok(())) => {
@@ -39,21 +49,50 @@ where
     });
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// maps one on one
+fn map_event(event: Event) -> Vec<ui::DockMsg> {
+    fn upsert(w: Window) -> ui::DockMsg {
+        ui::DockMsg::WindowUpserted {
+            id: w.id,
+            app_id: w.app_id,
+            title: w.title.unwrap_or_default(),
+        }
+    }
+
+    match event {
+        Event::WindowsChanged { windows } => windows.into_iter().map(upsert).collect(),
+        Event::WindowOpenedOrChanged { window } => vec![upsert(window)],
+        Event::WindowClosed { id } => vec![ui::DockMsg::WindowClosed { id }],
+        Event::WindowFocusChanged { id } => vec![ui::DockMsg::WindowFocusedChanged { id }],
+
+        _ => vec![],
+    }
+}
+
+/// starts event listener and forwards events into dock components
+pub fn start_niri_events(sender: relm4::Sender<ui::DockMsg>) {
+    spawn_supervised("niri-events-bridge", async move {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(64);
+        niri::spawn_event_listener(event_tx);
+
+        while let Some(event) = event_rx.recv().await {
+            for msg in map_event(event) {
+                if sender.send(msg).is_err() {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    });
+}
+
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let commands = niri::CommandClient::connect().await?;
+    let commands = runtime().block_on(niri::CommandClient::connect())?;
 
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(64);
-    niri::spawn_event_listener(event_tx);
-
-    let windows = commands.send(Request::Windows).await?;
-    log::info!("initial windows: {windows:?}");
-
-    while let Some(event) = event_rx.recv().await {
-        log::info!("event: {event:?}");
-    }
+    let app = RelmApp::new("dev.example.niri-dock");
+    app.run::<ui::DockModel>(commands);
 
     Ok(())
 }

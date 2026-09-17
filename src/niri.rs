@@ -32,7 +32,7 @@ async fn request_once(stream: &mut UnixStream, req: &Request) -> anyhow::Result<
     Ok(serde_json::from_str(&buf)?)
 }
 
-///  which is cheap and safe to copy
+/// provides a client which is cheap and safe to copy
 #[derive(Clone)]
 pub struct CommandClient {
     tx: mpsc::Sender<(Request, oneshot::Sender<anyhow::Result<Response>>)>,

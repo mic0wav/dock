@@ -1,0 +1,14 @@
+hot_reload = true
+position = "bottom"
+
+[launchables.firefox]
+icon = "firefox"
+command = "firefox"
+
+[launchables.terminal]
+icon = "terminal"
+command = "foot"
+
+[launchables.helix]
+icon = "helix"
+command = "alacritty hx ~/"

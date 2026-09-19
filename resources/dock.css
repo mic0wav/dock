@@ -1,0 +1,51 @@
+:root {
+    --bg1: #14212A;
+    --bg2: #14212A;
+    --fg1: #DCE7EB;
+    --accent: #6F9AA9;
+}
+
+* {
+    border: 0 solid transparent;
+}
+
+label {
+    color: var(--fg1);
+    font-family: "Monaspace Neon NF";
+    font-size: 15px;
+    font-weight: 400;
+}
+
+window {
+    background-color: transparent;
+}
+
+.dock {
+    background-color: var(--bg1);
+    border: 0px solid var(--bg2);
+    padding: 6px;
+    border-radius: 12px;
+}
+
+.indicator {
+    min-width: 128px;
+    min-height: 4px;
+    border-radius: 2px;
+    background-color: var(--bg1);
+}
+
+.app {
+    padding: 12px;
+    border-radius: 8px;
+    background-image: none;
+    background-color: var(--bg2);
+
+}
+
+.app:active {
+    transform: translate3d(0px, 2px, 2px);
+}
+
+.app:hover {
+    background-color: var(--accent);
+}

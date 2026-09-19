@@ -1,5 +1,8 @@
+mod config;
 mod niri;
 mod ui;
+
+use ui::{DockInit, DockMsg};
 
 use niri_ipc::{Event, Window};
 use relm4::RelmApp;
@@ -50,9 +53,9 @@ where
 }
 
 /// maps one on one
-fn map_event(event: Event) -> Vec<ui::DockMsg> {
-    fn upsert(w: Window) -> ui::DockMsg {
-        ui::DockMsg::WindowUpserted {
+fn map_event(event: Event) -> Vec<DockMsg> {
+    fn upsert(w: Window) -> DockMsg {
+        DockMsg::WindowUpserted {
             id: w.id,
             app_id: w.app_id,
             title: w.title.unwrap_or_default(),
@@ -62,15 +65,15 @@ fn map_event(event: Event) -> Vec<ui::DockMsg> {
     match event {
         Event::WindowsChanged { windows } => windows.into_iter().map(upsert).collect(),
         Event::WindowOpenedOrChanged { window } => vec![upsert(window)],
-        Event::WindowClosed { id } => vec![ui::DockMsg::WindowClosed { id }],
-        Event::WindowFocusChanged { id } => vec![ui::DockMsg::WindowFocusedChanged { id }],
+        Event::WindowClosed { id } => vec![DockMsg::WindowClosed { id }],
+        Event::WindowFocusChanged { id } => vec![DockMsg::WindowFocusedChanged { id }],
 
         _ => vec![],
     }
 }
 
 /// starts event listener and forwards events into dock components
-pub fn start_niri_events(sender: relm4::Sender<ui::DockMsg>) {
+pub fn start_niri_events(sender: relm4::Sender<DockMsg>) {
     spawn_supervised("niri-events-bridge", async move {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(64);
         niri::spawn_event_listener(event_tx);
@@ -90,9 +93,10 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let commands = runtime().block_on(niri::CommandClient::connect())?;
+    let config = config::load();
 
     let app = RelmApp::new("dev.example.niri-dock");
-    app.run::<ui::DockModel>(commands);
+    app.run::<ui::DockModel>(DockInit { commands, config });
 
     Ok(())
 }

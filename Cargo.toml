@@ -10,6 +10,9 @@ gtk = { version = "0.11", package = "gtk4", features = ["v4_14"] }
 gtk4-layer-shell = "0.8.1"
 log = "0.4.34"
 niri-ipc = "=26.4.0"
+notify = "6"
 relm4 = { version = "0.11.0", default-features = false, features = ["macros"] }
 serde_json = "1.0.151"
+serde = { version = "1", features= ["derive"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
+toml = "0.8"

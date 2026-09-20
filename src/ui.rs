@@ -31,16 +31,16 @@ fn apply_layer_position(window: &impl LayerShell, position: Position) {
 
 pub struct IconInit {
     pub id: u64,
-    pub app_id: Option<String>,
     pub title: String,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct IconModel {
     pub id: u64,
-    pub app_id: Option<String>,
     pub title: String,
     pub focused: bool,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug)]
@@ -76,7 +76,7 @@ impl FactoryComponent for IconModel {
             gtk::Image {
                 // plug in icon cache once implemented
                 set_icon_name: Some (
-                    self.app_id.as_deref().unwrap_or("application-x-executable")
+                    self.icon.as_deref().unwrap_or("application-x-executable")
                 ),
                 set_pixel_size: 32,
             },
@@ -86,9 +86,9 @@ impl FactoryComponent for IconModel {
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         Self {
             id: init.id,
-            app_id: init.app_id,
             title: init.title,
             focused: false,
+            icon: init.icon,
         }
     }
 
@@ -233,6 +233,7 @@ pub struct DockModel {
     pinned: FactoryVecDeque<PinModel>,
     visible: bool,
     indicator: Controller<IndicatorModel>,
+    icon_cache: crate::icons::IconCache,
 }
 
 pub struct DockInit {
@@ -277,6 +278,7 @@ impl SimpleComponent for DockModel {
             set_child = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
+                set_margin_all: 4,
                 add_controller = gtk::EventControllerMotion {
                     connect_leave[sender] => move |_| {
                         sender.input(DockMsg::PointerLeft);
@@ -369,6 +371,7 @@ impl SimpleComponent for DockModel {
             pinned,
             visible: false,
             indicator,
+            icon_cache: crate::icons::IconCache::new(),
         };
         let icon_box = model.icons.widget();
         let pinned_box = model.pinned.widget();
@@ -383,7 +386,8 @@ impl SimpleComponent for DockModel {
                 if let Some(index) = self.index_of.get(&id) {
                     guard.send(index.current_index(), IconMsg::Retitle(title));
                 } else {
-                    let index = guard.push_back(IconInit { id, app_id, title });
+                    let icon = app_id.as_deref().and_then(|a| self.icon_cache.lookup(a));
+                    let index = guard.push_back(IconInit { id, title, icon });
                     self.index_of.insert(id, index);
                 }
                 self.windows_count = self.index_of.len();

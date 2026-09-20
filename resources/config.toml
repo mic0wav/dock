@@ -1,14 +1,14 @@
 hot_reload = true
 position = "bottom"
 
-[launchables.firefox]
+[pinned.firefox]
 icon = "firefox"
 command = "firefox"
 
-[launchables.terminal]
+[pinned.terminal]
 icon = "terminal"
 command = "foot"
 
-[launchables.helix]
+[pinned.helix]
 icon = "helix"
-command = "alacritty hx ~/"
+command = "foot hx ~/"

@@ -2,7 +2,7 @@ mod config;
 mod niri;
 mod ui;
 
-use ui::{DockInit, DockMsg};
+use ui::{DockInit, DockModel, DockMsg};
 
 use niri_ipc::{Event, Window};
 use relm4::RelmApp;
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
     let config = config::load();
 
     let app = RelmApp::new("dev.example.niri-dock");
-    app.run::<ui::DockModel>(DockInit { commands, config });
+    app.run::<DockModel>(DockInit { commands, config });
 
     Ok(())
 }

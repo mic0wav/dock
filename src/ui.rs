@@ -2,15 +2,22 @@ use std::collections::HashMap;
 
 use gtk::prelude::*;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use niri_ipc::{Action, Request};
+use niri_ipc::{Action, Request, Window};
 use relm4::factory::{DynamicIndex, FactoryComponent, FactoryVecDeque};
 use relm4::prelude::*;
 
 use crate::config::{self, Position};
 use crate::niri::CommandClient;
 
+/// make sure we do not include the dock in the dock
+pub const APP_ID: &str = "dev.example.niri-dock";
+
+pub(crate) fn is_own_window(w: &Window) -> bool {
+    w.app_id.as_deref() == Some(APP_ID)
+}
+
 /// puts window in layer shell mode and anchored to a edge
-fn apply_layer_position(window: &gtk::ApplicationWindow, position: Position) {
+fn apply_layer_position(window: &impl LayerShell, position: Position) {
     window.set_layer(Layer::Top);
     for (edge, active) in [
         (Edge::Left, false),
@@ -141,15 +148,91 @@ impl FactoryComponent for PinModel {
     }
 }
 
+pub struct IndicatorModel {
+    visible: bool,
+    window: gtk::Window,
+}
+
+#[derive(Debug)]
+pub enum IndicatorMsg {
+    Entered,
+    Reappear,
+    SetPosition(Position),
+}
+
+#[derive(Debug)]
+pub enum IndicatorOutput {
+    Entered,
+}
+
+#[relm4::component(pub)]
+impl SimpleComponent for IndicatorModel {
+    type Init = Position;
+    type Input = IndicatorMsg;
+    type Output = IndicatorOutput;
+
+    view! {
+        #[root]
+        gtk::Window {
+            #[watch]
+            set_visible: model.visible,
+
+            gtk::Box {
+                set_css_classes: &["indicator"],
+                set_margin_all: 2,
+                add_controller = gtk::EventControllerMotion {
+                    connect_enter[sender] => move |_, _, _| {
+                        sender.input(IndicatorMsg::Entered);
+                    }
+                },
+            }
+        }
+    }
+
+    fn init(
+        position: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        root.init_layer_shell();
+        apply_layer_position(&root, position);
+
+        let model = IndicatorModel {
+            visible: true,
+            window: root.clone(),
+        };
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
+        match msg {
+            IndicatorMsg::Entered => {
+                self.visible = false;
+                let _ = sender.output(IndicatorOutput::Entered);
+            }
+            IndicatorMsg::Reappear => {
+                self.visible = true;
+            }
+            IndicatorMsg::SetPosition(position) => {
+                apply_layer_position(&self.window, position);
+            }
+        }
+    }
+}
+
 pub struct DockModel {
     icons: FactoryVecDeque<IconModel>,
     /// this will be need to be kept in lockstep with icons
     index_of: HashMap<u64, DynamicIndex>,
     focused_id: Option<u64>,
+    windows_count: usize,
     commands: CommandClient,
     window: gtk::ApplicationWindow,
     css_provider: gtk::CssProvider,
     pinned: FactoryVecDeque<PinModel>,
+    visible: bool,
+    indicator: Controller<IndicatorModel>,
 }
 
 pub struct DockInit {
@@ -173,6 +256,8 @@ pub enum DockMsg {
     IconClicked(u64),
     PinClicked(String),
     ConfigReloaded(config::Config),
+    IndicatorEntered,
+    PointerLeft,
 }
 
 #[relm4::component(pub)]
@@ -185,15 +270,31 @@ impl SimpleComponent for DockModel {
         #[root]
         gtk::ApplicationWindow {
             set_title: Some("dock"),
+            #[watch]
+            set_visible: model.visible,
 
             #[wrap(Some)]
             set_child = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 4,
+                set_spacing: 8,
+                add_controller = gtk::EventControllerMotion {
+                    connect_leave[sender] => move |_| {
+                        sender.input(DockMsg::PointerLeft);
+                    }
+                },
+
                 #[local_ref]
-                pinned_box -> gtk::Box {},
+                pinned_box -> gtk::Box {
+                    set_css_classes: &["dock"],
+                    set_spacing: 8,
+                },
                 #[local_ref]
-                icon_box -> gtk::Box {}
+                icon_box -> gtk::Box {
+                    #[watch]
+                    set_visible: model.windows_count > 0,
+                    set_css_classes: &["dock"],
+                    set_spacing: 8,
+                }
             }
         }
     }
@@ -247,15 +348,27 @@ impl SimpleComponent for DockModel {
 
         crate::start_niri_events(sender.input_sender().clone());
 
+        // seperate from main window, has to be registered seperately too
+        let indicator = IndicatorModel::builder().launch(config.position).forward(
+            sender.input_sender(),
+            |output| match output {
+                IndicatorOutput::Entered => DockMsg::IndicatorEntered,
+            },
+        );
+        relm4::main_application().add_window(indicator.widget());
+
         let window = root.clone();
         let model = DockModel {
             icons,
             index_of: HashMap::new(),
             focused_id: None,
+            windows_count: 0,
             commands,
             window,
             css_provider,
             pinned,
+            visible: false,
+            indicator,
         };
         let icon_box = model.icons.widget();
         let pinned_box = model.pinned.widget();
@@ -273,11 +386,13 @@ impl SimpleComponent for DockModel {
                     let index = guard.push_back(IconInit { id, app_id, title });
                     self.index_of.insert(id, index);
                 }
+                self.windows_count = self.index_of.len();
             }
             DockMsg::WindowClosed { id } => {
                 if let Some(index) = self.index_of.remove(&id) {
                     guard.remove(index.current_index());
                 }
+                self.windows_count = self.index_of.len();
             }
             DockMsg::WindowFocusedChanged { id } => {
                 if let Some(old_id) = self.focused_id
@@ -318,6 +433,8 @@ impl SimpleComponent for DockModel {
             }
             DockMsg::ConfigReloaded(config) => {
                 apply_layer_position(&self.window, config.position);
+                self.indicator
+                    .emit(IndicatorMsg::SetPosition(config.position));
                 self.css_provider.load_from_string(&config::load_css());
 
                 let mut guard = self.pinned.guard();
@@ -335,6 +452,13 @@ impl SimpleComponent for DockModel {
                     config.hot_reload,
                     config.pinned.len(),
                 );
+            }
+            DockMsg::IndicatorEntered => {
+                self.visible = true;
+            }
+            DockMsg::PointerLeft => {
+                self.visible = false;
+                self.indicator.emit(IndicatorMsg::Reappear);
             }
         }
     }

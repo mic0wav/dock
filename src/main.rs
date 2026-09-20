@@ -54,17 +54,20 @@ where
 
 /// maps one on one
 fn map_event(event: Event) -> Vec<DockMsg> {
-    fn upsert(w: Window) -> DockMsg {
-        DockMsg::WindowUpserted {
+    fn upsert(w: Window) -> Option<DockMsg> {
+        if ui::is_own_window(&w) {
+            return None;
+        }
+        Some(DockMsg::WindowUpserted {
             id: w.id,
             app_id: w.app_id,
             title: w.title.unwrap_or_default(),
-        }
+        })
     }
 
     match event {
-        Event::WindowsChanged { windows } => windows.into_iter().map(upsert).collect(),
-        Event::WindowOpenedOrChanged { window } => vec![upsert(window)],
+        Event::WindowsChanged { windows } => windows.into_iter().filter_map(upsert).collect(),
+        Event::WindowOpenedOrChanged { window } => upsert(window).into_iter().collect(),
         Event::WindowClosed { id } => vec![DockMsg::WindowClosed { id }],
         Event::WindowFocusChanged { id } => vec![DockMsg::WindowFocusedChanged { id }],
 
@@ -95,7 +98,7 @@ fn main() -> anyhow::Result<()> {
     let commands = runtime().block_on(niri::CommandClient::connect())?;
     let config = config::load();
 
-    let app = RelmApp::new("dev.example.niri-dock");
+    let app = RelmApp::new(ui::APP_ID);
     app.run::<DockModel>(DockInit { commands, config });
 
     Ok(())

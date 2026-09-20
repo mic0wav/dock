@@ -42,20 +42,9 @@ impl CommandClient {
     /// connects and spaws a task that owns the command socket
     pub async fn connect() -> anyhow::Result<Self> {
         let stream = connect().await?;
-        let (tx, mut rx) =
-            mpsc::channel::<(Request, oneshot::Sender<anyhow::Result<Response>>)>(32);
+        let (tx, rx) = mpsc::channel::<(Request, oneshot::Sender<anyhow::Result<Response>>)>(32);
 
-        crate::spawn_supervised("niri-command", async move {
-            let mut stream = stream;
-            while let Some((req, reply_tx)) = rx.recv().await {
-                let result = request_once(&mut stream, &req)
-                    .await
-                    .and_then(|reply| reply.map_err(|e| anyhow::anyhow!(e)));
-                let _ = reply_tx.send(result);
-            }
-            Ok(())
-        });
-
+        crate::spawn_supervised("niri-command", command_loop(stream, rx));
         Ok(Self { tx })
     }
 
@@ -70,6 +59,34 @@ impl CommandClient {
             .await
             .map_err(|_| anyhow::anyhow!("niri command task dropped the reply"))?
     }
+}
+
+/// distinguishes a small failure from a niri disconnect
+async fn command_loop(
+    mut stream: UnixStream,
+    mut rx: mpsc::Receiver<(Request, oneshot::Sender<anyhow::Result<Response>>)>,
+) -> anyhow::Result<()> {
+    while let Some((req, reply_tx)) = rx.recv().await {
+        let result = match request_once(&mut stream, &req).await {
+            Ok(reply) => reply.map_err(|e| anyhow::anyhow!(e)),
+            Err(broken) => {
+                log::warn!("niri command connection lost ({broken:#}), reconnecting");
+                match connect().await {
+                    Ok(new_stream) => {
+                        stream = new_stream;
+                        request_once(&mut stream, &req)
+                            .await
+                            .and_then(|reply| reply.map_err(|e| anyhow::anyhow!(e)))
+                    }
+                    Err(reconnect_failed) => Err(anyhow::anyhow!(
+                        "niri command connection lost and reconnect failed: {reconnect_failed:#}"
+                    )),
+                }
+            }
+        };
+        let _ = reply_tx.send(result);
+    }
+    Ok(())
 }
 
 /// connects to the event stream

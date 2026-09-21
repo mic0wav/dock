@@ -10,14 +10,22 @@ use relm4::RelmApp;
 use std::future::Future;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 
 pub const APP_ID: &str = "dev.dock.niri";
 
 /// builds the tokio runtime explicitly
 pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| Runtime::new().expect("failed to start tokio runtime"))
+    RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("dock-io")
+            .enable_io()
+            .enable_time()
+            .build()
+            .expect("failed to start tokio runtime")
+    })
 }
 
 /// helper that keeps things from failing quietly

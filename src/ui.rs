@@ -372,9 +372,9 @@ impl SimpleComponent for DockModel {
     }
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
-        let mut guard = self.icons.guard();
         match msg {
             DockMsg::WindowUpserted { id, app_id, title } => {
+                let mut guard = self.icons.guard();
                 if let Some(index) = self.index_of.get(&id) {
                     guard.send(index.current_index(), IconMsg::Retitle(title));
                 } else {
@@ -385,10 +385,11 @@ impl SimpleComponent for DockModel {
             }
             DockMsg::WindowClosed { id } => {
                 if let Some(index) = self.index_of.remove(&id) {
-                    guard.remove(index.current_index());
+                    self.icons.guard().remove(index.current_index());
                 }
             }
             DockMsg::WindowFocusChanged { id } => {
+                let guard = self.icons.guard();
                 if let Some(old_id) = self.focused_id
                     && let Some(old_index) = self.index_of.get(&old_id)
                 {

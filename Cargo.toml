@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-env_logger = "0.11.6"
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
 gtk = { version = "0.11", package = "gtk4", features = ["v4_14"] }
 gtk4-layer-shell = "0.8.1"
 gio-unix = "0.22"
@@ -15,5 +15,11 @@ notify = "6"
 relm4 = { version = "0.11.0", default-features = false, features = ["macros"] }
 serde_json = "1.0.151"
 serde = { version = "1", features= ["derive"] }
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
+tokio = { version = "1.53.1", features = ["rt", "net", "io-util", "sync", "time"] }
 toml = "0.8"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true

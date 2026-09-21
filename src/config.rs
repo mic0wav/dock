@@ -33,13 +33,7 @@ fn default_true() -> bool {
 
 /// gets the config from XDG_CONFIG_HOME or ~/.config/
 pub fn dir() -> Option<PathBuf> {
-    if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
-        Some(PathBuf::from(x).join("dock"))
-    } else if let Ok(x) = std::env::var("HOME") {
-        Some(PathBuf::from(x).join(".config/dock"))
-    } else {
-        None
-    }
+    Some(gtk::glib::user_config_dir())
 }
 
 fn read_or_seed_default(filename: &str, default: &str) -> String {
@@ -52,7 +46,7 @@ fn read_or_seed_default(filename: &str, default: &str) -> String {
 
     match std::fs::read_to_string(&path) {
         Ok(contents) => contents,
-        Err(_) => {
+        Err(exist) if exist.kind() == std::io::ErrorKind::NotFound => {
             if let Err(e) =
                 std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, default))
             {
@@ -63,6 +57,10 @@ fn read_or_seed_default(filename: &str, default: &str) -> String {
             } else {
                 log::info!("wrote default {filename} to {}", path.display())
             }
+            default.to_string()
+        }
+        Err(exist) => {
+            log::warn!("{}", exist);
             default.to_string()
         }
     }

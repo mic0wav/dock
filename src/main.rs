@@ -12,8 +12,10 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
+pub const APP_ID: &str = "dev.dock.niri";
+
 /// builds the tokio runtime explicitly
-pub(crate) fn runtime() -> &'static Runtime {
+pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| Runtime::new().expect("failed to start tokio runtime"))
 }
@@ -53,12 +55,9 @@ where
     });
 }
 
-/// maps one on one
+/// maps one out on one in
 fn map_event(event: Event) -> Vec<DockMsg> {
     fn upsert(w: Window) -> Option<DockMsg> {
-        if ui::is_own_window(&w) {
-            return None;
-        }
         Some(DockMsg::WindowUpserted {
             id: w.id,
             app_id: w.app_id,
@@ -70,7 +69,7 @@ fn map_event(event: Event) -> Vec<DockMsg> {
         Event::WindowsChanged { windows } => windows.into_iter().filter_map(upsert).collect(),
         Event::WindowOpenedOrChanged { window } => upsert(window).into_iter().collect(),
         Event::WindowClosed { id } => vec![DockMsg::WindowClosed { id }],
-        Event::WindowFocusChanged { id } => vec![DockMsg::WindowFocusedChanged { id }],
+        Event::WindowFocusChanged { id } => vec![DockMsg::WindowFocusChanged { id }],
 
         _ => vec![],
     }
@@ -99,7 +98,7 @@ fn main() -> anyhow::Result<()> {
     let commands = runtime().block_on(niri::CommandClient::connect())?;
     let config = config::load();
 
-    let app = RelmApp::new(ui::APP_ID);
+    let app = RelmApp::new(APP_ID);
     app.run::<DockModel>(DockInit { commands, config });
 
     Ok(())

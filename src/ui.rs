@@ -2,19 +2,12 @@ use std::collections::HashMap;
 
 use gtk::prelude::*;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use niri_ipc::{Action, Request, Window};
+use niri_ipc::{Action, Request};
 use relm4::factory::{DynamicIndex, FactoryComponent, FactoryVecDeque};
 use relm4::prelude::*;
 
 use crate::config::{self, Position};
 use crate::niri::CommandClient;
-
-/// make sure we do not include the dock in the dock
-pub const APP_ID: &str = "dev.example.niri-dock";
-
-pub(crate) fn is_own_window(w: &Window) -> bool {
-    w.app_id.as_deref() == Some(APP_ID)
-}
 
 /// puts window in layer shell mode and anchored to a edge
 fn apply_layer_position(window: &impl LayerShell, position: Position) {
@@ -67,6 +60,7 @@ impl FactoryComponent for IconModel {
         gtk::Button {
             #[watch]
             set_css_classes: if self.focused { &["app", "active"] } else { &["app"] },
+            #[watch]
             set_tooltip_text: Some(&self.title),
 
             connect_clicked[sender, id = self.id] => move |_| {
@@ -226,7 +220,6 @@ pub struct DockModel {
     /// this will be need to be kept in lockstep with icons
     index_of: HashMap<u64, DynamicIndex>,
     focused_id: Option<u64>,
-    windows_count: usize,
     commands: CommandClient,
     window: gtk::ApplicationWindow,
     css_provider: gtk::CssProvider,
@@ -251,7 +244,7 @@ pub enum DockMsg {
     WindowClosed {
         id: u64,
     },
-    WindowFocusedChanged {
+    WindowFocusChanged {
         id: Option<u64>,
     },
     IconClicked(u64),
@@ -293,7 +286,7 @@ impl SimpleComponent for DockModel {
                 #[local_ref]
                 icon_box -> gtk::Box {
                     #[watch]
-                    set_visible: model.windows_count > 0,
+                    set_visible: !model.index_of.is_empty(),
                     set_css_classes: &["dock"],
                     set_spacing: 8,
                 }
@@ -364,7 +357,6 @@ impl SimpleComponent for DockModel {
             icons,
             index_of: HashMap::new(),
             focused_id: None,
-            windows_count: 0,
             commands,
             window,
             css_provider,
@@ -390,15 +382,13 @@ impl SimpleComponent for DockModel {
                     let index = guard.push_back(IconInit { id, title, icon });
                     self.index_of.insert(id, index);
                 }
-                self.windows_count = self.index_of.len();
             }
             DockMsg::WindowClosed { id } => {
                 if let Some(index) = self.index_of.remove(&id) {
                     guard.remove(index.current_index());
                 }
-                self.windows_count = self.index_of.len();
             }
-            DockMsg::WindowFocusedChanged { id } => {
+            DockMsg::WindowFocusChanged { id } => {
                 if let Some(old_id) = self.focused_id
                     && let Some(old_index) = self.index_of.get(&old_id)
                 {

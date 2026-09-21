@@ -1,7 +1,11 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::Duration;
 
-use notify::{RecursiveMode, Watcher};
+use gtk::gio::{self, prelude::*};
+use gtk::glib;
 
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct Pin {
@@ -85,44 +89,50 @@ pub fn load_css() -> String {
 }
 
 /// watches the config dir
-pub fn watch_changes(on_change: impl Fn() + Send + 'static) {
+pub fn watch_changes(on_change: impl Fn() + 'static) -> Option<gio::FileMonitor> {
     let Some(dir) = dir() else {
         log::warn!("could not resolve config directory, disabeling hot reload");
-        return;
+        return None;
     };
 
-    std::thread::spawn(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = match notify::recommended_watcher(tx) {
-            Ok(w) => w,
-            Err(e) => {
-                log::warn!("could not start config watcher: {e:#}");
-                return;
-            }
-        };
-        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+    let monitor = match gio::File::for_path(&dir)
+        .monitor_directory(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
+    {
+        Ok(m) => m,
+        Err(e) => {
             log::warn!("could not watch {}: {e:#}", dir.display());
+            return None;
+        }
+    };
+
+    let on_change = Rc::new(on_change);
+    let pending = Rc::new(Cell::new(false));
+
+    monitor.connect_changed(move |_, file, _, event| {
+        if !matches!(
+            event,
+            gio::FileMonitorEvent::Created | gio::FileMonitorEvent::ChangesDoneHint
+        ) {
             return;
         }
 
-        while let Ok(res) = rx.recv() {
-            let Ok(event) = res else {
-                continue;
-            };
-            let relevant = event.paths.iter().any(|p| {
-                // for now only config.toml and dock.css get watched
-                matches!(
-                    p.file_name().and_then(|n| n.to_str()),
-                    Some("config.toml" | "dock.css")
-                )
-            });
-
-            if relevant {
-                // this makes sure the dock does not get reloaded too much
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                while rx.try_recv().is_ok() {}
-                on_change();
-            }
+        let name = file.basename();
+        let relevant = matches!(
+            name.as_deref().and_then(Path::to_str),
+            Some("config.toml" | "dock.css")
+        );
+        if !relevant || pending.replace(true) {
+            return;
         }
+
+        // debounce: coalesce bursts of events into one reload
+        let pending = pending.clone();
+        let on_change = on_change.clone();
+        glib::timeout_add_local_once(Duration::from_millis(50), move || {
+            pending.set(false);
+            on_change();
+        });
     });
+
+    Some(monitor)
 }

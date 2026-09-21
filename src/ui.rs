@@ -227,6 +227,7 @@ pub struct DockModel {
     visible: bool,
     indicator: Controller<IndicatorModel>,
     icon_cache: crate::icons::IconCache,
+    _config_monitor: Option<gtk::gio::FileMonitor>,
 }
 
 pub struct DockInit {
@@ -313,12 +314,14 @@ impl SimpleComponent for DockModel {
             );
         }
 
-        if config.hot_reload {
+        let config_monitor = if config.hot_reload {
             let sender_for_reload = sender.input_sender().clone();
             config::watch_changes(move || {
                 let _ = sender_for_reload.send(DockMsg::ConfigReloaded(config::load()));
-            });
-        }
+            })
+        } else {
+            None
+        };
 
         let icons = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -364,6 +367,7 @@ impl SimpleComponent for DockModel {
             visible: false,
             indicator,
             icon_cache: crate::icons::IconCache::new(),
+            _config_monitor: config_monitor,
         };
         let icon_box = model.icons.widget();
         let pinned_box = model.pinned.widget();

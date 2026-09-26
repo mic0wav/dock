@@ -22,6 +22,22 @@ fn apply_layer_position(window: &impl LayerShell, position: Position) {
     }
 }
 
+/// makes the window hide or show by moving it really far offscreen
+fn set_layer_visible(window: &impl LayerShell, position: Position, visible: bool) {
+    let edge = match position {
+        Position::Top => Edge::Top,
+        Position::Bottom => Edge::Bottom,
+    };
+    window.set_margin(
+        edge,
+        if visible {
+            0
+        } else {
+            -20_000 /* this is arbitary large value*/
+        },
+    );
+}
+
 pub struct IconInit {
     pub id: u64,
     pub title: String,
@@ -145,6 +161,7 @@ impl FactoryComponent for PinModel {
 pub struct IndicatorModel {
     visible: bool,
     window: gtk::Window,
+    position: Position,
 }
 
 #[derive(Debug)]
@@ -169,7 +186,7 @@ impl SimpleComponent for IndicatorModel {
         #[root]
         gtk::Window {
             #[watch]
-            set_visible: model.visible,
+            set_visible: true,
 
             gtk::Box {
                 set_css_classes: &["indicator"],
@@ -190,10 +207,12 @@ impl SimpleComponent for IndicatorModel {
     ) -> ComponentParts<Self> {
         root.init_layer_shell();
         apply_layer_position(&root, position);
+        set_layer_visible(&root, position, true);
 
         let model = IndicatorModel {
             visible: true,
             window: root.clone(),
+            position,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -203,13 +222,17 @@ impl SimpleComponent for IndicatorModel {
         match msg {
             IndicatorMsg::Entered => {
                 self.visible = false;
+                set_layer_visible(&self.window, self.position, false);
                 let _ = sender.output(IndicatorOutput::Entered);
             }
             IndicatorMsg::Reappear => {
                 self.visible = true;
+                set_layer_visible(&self.window, self.position, true);
             }
             IndicatorMsg::SetPosition(position) => {
+                self.position = position;
                 apply_layer_position(&self.window, position);
+                set_layer_visible(&self.window, position, self.visible);
             }
         }
     }
@@ -225,6 +248,7 @@ pub struct DockModel {
     css_provider: gtk::CssProvider,
     pinned: FactoryVecDeque<PinModel>,
     visible: bool,
+    position: Position,
     indicator: Controller<IndicatorModel>,
     icon_cache: crate::icons::IconCache,
     _config_monitor: Option<gtk::gio::FileMonitor>,
@@ -266,7 +290,7 @@ impl SimpleComponent for DockModel {
         gtk::ApplicationWindow {
             set_title: Some("dock"),
             #[watch]
-            set_visible: model.visible,
+            set_visible: true,
 
             #[wrap(Some)]
             set_child = &gtk::Box {
@@ -303,6 +327,7 @@ impl SimpleComponent for DockModel {
         let DockInit { commands, config } = init;
         root.init_layer_shell();
         apply_layer_position(&root, config.position);
+        set_layer_visible(&root, config.position, false);
 
         let css_provider = gtk::CssProvider::new();
         css_provider.load_from_string(&config::load_css());
@@ -365,6 +390,7 @@ impl SimpleComponent for DockModel {
             css_provider,
             pinned,
             visible: false,
+            position: config.position,
             indicator,
             icon_cache: crate::icons::IconCache::new(),
             _config_monitor: config_monitor,
@@ -431,7 +457,9 @@ impl SimpleComponent for DockModel {
                 });
             }
             DockMsg::ConfigReloaded(config) => {
+                self.position = config.position;
                 apply_layer_position(&self.window, config.position);
+                set_layer_visible(&self.window, config.position, self.visible);
                 self.indicator
                     .emit(IndicatorMsg::SetPosition(config.position));
                 self.css_provider.load_from_string(&config::load_css());
@@ -454,9 +482,11 @@ impl SimpleComponent for DockModel {
             }
             DockMsg::IndicatorEntered => {
                 self.visible = true;
+                set_layer_visible(&self.window, self.position, true);
             }
             DockMsg::PointerLeft => {
                 self.visible = false;
+                set_layer_visible(&self.window, self.position, false);
                 self.indicator.emit(IndicatorMsg::Reappear);
             }
         }

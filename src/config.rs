@@ -37,7 +37,7 @@ fn default_true() -> bool {
 
 /// gets the config from XDG_CONFIG_HOME or ~/.config/
 pub fn dir() -> Option<PathBuf> {
-    Some(gtk::glib::user_config_dir())
+    Some(gtk::glib::user_config_dir().join("dock"))
 }
 
 fn read_or_seed_default(filename: &str, default: &str) -> String {
